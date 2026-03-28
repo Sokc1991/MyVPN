@@ -18,7 +18,8 @@ android.ndk = 25b
 android.sdk = 33
 android.api = 33
 android.minapi = 21
-android.permissions = INTERNET, FOREGROUND_SERVICE
+android.permissions = INTERNET, ACCESS_NETWORK_STATE, FOREGROUND_SERVICE
+android.no_stop_service = True
 
 android.archs = arm64-v8a
 p4a.branch = master
