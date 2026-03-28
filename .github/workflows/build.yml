@@ -23,41 +23,37 @@ jobs:
       run: |
         mkdir -p ~/.android
         echo "count=0" > ~/.android/repositories.cfg
-        echo "y" | ~/.local/bin/buildozer android update || true
-        echo "y" | ~/.local/bin/buildozer android update --accept-sdk-license || true
+        echo "y" | ~/.local/bin/buildozer android update 2>&1 || true
     
-    - name: Fix permissions
-      run: |
-        chmod +x ~/.local/bin/buildozer
-        mkdir -p ~/.buildozer
-    
-    - name: Clean previous builds
-      run: |
-        rm -rf ~/.buildozer
-        rm -rf bin
-        rm -rf .buildozer
-    
-    - name: Build APK
+    - name: Build APK with full log
       run: |
         export PATH=$PATH:~/.local/bin
-        export LC_ALL=C.UTF-8
-        export LANG=C.UTF-8
-        buildozer android debug 2>&1 | tee build.log
+        buildozer android debug 2>&1 | tee full_build.log
+        echo "=== BUILD LOG END ==="
     
-    - name: Check if APK exists
+    - name: Check build result
       run: |
         if [ -f bin/*.apk ]; then
-          echo "APK built successfully"
+          echo "✅ APK built successfully!"
           ls -la bin/
         else
-          echo "APK not found, showing last 100 lines of build log"
-          tail -100 build.log
+          echo "❌ APK not found"
+          echo ""
+          echo "=== Last 200 lines of build log ==="
+          tail -200 full_build.log
           exit 1
         fi
     
     - name: Upload APK
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: MyVPN
         path: bin/*.apk
-        if-no-files-found: error
+    
+    - name: Upload build log
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: full_build.log
