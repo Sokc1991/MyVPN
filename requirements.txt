@@ -1,0 +1,7 @@
+kivy
+https://github.com/kivymd/kivymd/archive/master.zip
+pyjnius
+materialyoucolor
+pillow
+asynckivy
+asyncgui
