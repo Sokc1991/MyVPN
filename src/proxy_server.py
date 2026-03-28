@@ -16,6 +16,7 @@ class DPIProxy:
             "youtube.com", "youtu.be", "googlevideo.com", "ytimg.com",
             "brawlstars.com", "supercell.com", "clashroyale.com",
             "roblox.com", "rbxcdn.com", "minecraft.net", "mojang.com",
+            "roblox.com", "rbxcdn.com", "robloxcdn.com", "robloxgames.com",
             "epicgames.com", "fortnite.com", "steampowered.com",
             "discord.com", "snapchat.com", "tiktok.com", "instagram.com",
             "facebook.com", "twitter.com", "x.com", "telegram.org", "t.me",
