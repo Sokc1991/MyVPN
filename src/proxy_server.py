@@ -1,246 +1,148 @@
 import socket
 import threading
-import select
 import random
 import time
-import struct
+import select
+import os
+import logging
 
 class DPIProxy:
     def __init__(self, host='127.0.0.1', port=8881):
         self.host = host
         self.port = port
         self.running = False
-        self.method = 'auto'  # auto выбирает лучший метод автоматически
-        self.unblock_count = 0
-        self.last_method_used = 'hybrid'
+        self.methods = ['hybrid', 'double_fragment', 'random_delay', 'fake_padding', 'sni', 'auto', 'tls_fragment', 'delayed']
+        self.current_method = 'auto'
+        self.history = {}
+        self.stats = {'unblocked': 0, 'speed_up': 0, 'speed_down': 0, 'errors': 0}
         
-        # Расширенный blacklist
         self.blacklist = [
-            # YouTube
-            "youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com",
-            # Игры
-            "brawlstars.com", "supercell.com", "clashroyale.com", "clashofclans.com",
-            "roblox.com", "rbxcdn.com", "robloxcdn.com", "minecraft.net", "mojang.com",
-            "epicgames.com", "fortnite.com", "steampowered.com", "steamcommunity.com",
-            # Соцсети
-            "discord.com", "discordapp.com", "snapchat.com", "tiktok.com",
-            "instagram.com", "facebook.com", "twitter.com", "x.com",
-            "telegram.org", "t.me", "whatsapp.com",
-            # Музыка
-            "soundcloud.com", "spotify.com", "music.yandex.ru", "vk.com",
-            # Видео
-            "twitch.tv", "rutube.ru", "netflix.com",
-            # AI
-            "chatgpt.com", "openai.com", "claude.ai"
+            "youtube.com", "googlevideo.com", "discord.com", "discordapp.com",
+            "t.me", "telegram.org", "roblox.com", "brawlstars.com",
+            "valorant.com", "playvalorant.com", "leagueoflegends.com", "genshin.hoyoverse.com",
+            "netflix.com", "disneyplus.com", "hbo.com", "icloud.com", "viber.com",
+            "apexlegends.com", "callofduty.com", "riotgames.com", "origin.com",
+            "spotify.com", "soundcloud.com", "twitch.tv", "rutube.ru", "vk.com",
+            "instagram.com", "facebook.com", "twitter.com", "snapchat.com", "tiktok.com"
         ]
+        
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger("ProxyCore")
 
-    # ==================== МЕТОД 1: СЛУЧАЙНАЯ ФРАГМЕНТАЦИЯ ====================
-    def fragment_random(self, data):
-        """Режет на случайные куски от 1 до 100 байт"""
-        if len(data) < 200:
-            return [data]
-        parts = []
-        offset = 0
-        while offset < len(data):
-            chunk = min(random.randint(1, 100), len(data) - offset)
-            parts.append(data[offset:offset + chunk])
-            offset += chunk
-        return parts
-
-    # ==================== МЕТОД 2: SNI ФРАГМЕНТАЦИЯ ====================
-    def fragment_sni(self, data):
-        """Режет по позиции SNI"""
-        if len(data) < 200:
-            return [data]
-        
-        sni_pos = -1
-        for i in range(min(len(data) - 5, 500)):
-            if data[i:i+2] == b'\x00\x00':
-                sni_pos = i
-                break
-        
-        if sni_pos > 0:
-            # Режем на 3 части
-            parts = [
-                data[:sni_pos],
-                data[sni_pos:sni_pos + 40],
-                data[sni_pos + 40:]
-            ]
-            return [p for p in parts if len(p) > 0]
-        
-        # Fallback
-        chunk = len(data) // 3
-        return [data[:chunk], data[chunk:2*chunk], data[2*chunk:]]
-
-    # ==================== МЕТОД 3: HYBRID (SNI + RANDOM) ====================
-    def fragment_hybrid(self, data):
-        """Сначала SNI, потом большие куски режет случайно"""
-        if len(data) < 200:
-            return [data]
-        
-        sni_parts = self.fragment_sni(data)
-        final = []
-        
-        for part in sni_parts:
-            if len(part) > 100:
-                # Дополнительная случайная резка
-                offset = 0
-                while offset < len(part):
-                    chunk = random.randint(30, 100)
-                    final.append(part[offset:offset + chunk])
-                    offset += chunk
+    def _apply_bypass(self, remote_sock, data, method):
+        try:
+            if method == 'double_fragment':
+                p1 = len(data) // 3
+                p2 = (len(data) * 2) // 3
+                chunks = [data[:p1], data[p1:p2], data[p2:]]
+                for c in chunks:
+                    mid = len(c) // 2
+                    remote_sock.send(c[:mid])
+                    time.sleep(0.01)
+                    remote_sock.send(c[mid:])
+                    
+            elif method == 'random_delay':
+                for b in range(len(data)):
+                    remote_sock.send(data[b:b+1])
+                    if random.random() > 0.7:
+                        time.sleep(random.uniform(0.005, 0.05))
+                        
+            elif method == 'fake_padding':
+                padding = os.urandom(random.randint(32, 128))
+                remote_sock.send(padding)
+                time.sleep(0.05)
+                remote_sock.send(data)
+                
+            elif method == 'sni':
+                remote_sock.send(data[:10])
+                time.sleep(0.1)
+                remote_sock.send(data[10:])
+                
             else:
-                final.append(part)
-        
-        return final
+                remote_sock.send(data[:2])
+                time.sleep(0.12)
+                remote_sock.send(data[2:])
+                
+            self.stats['unblocked'] += 1
+        except Exception as e:
+            self.stats['errors'] += 1
+            self.logger.error(f"Bypass error: {e}")
 
-    # ==================== МЕТОД 4: РАЗРЫВ (TLS FRAGMENT) ====================
-    def fragment_tls_fragment(self, data):
-        """Специальный метод для обхода DPI через разрыв TLS записи"""
-        if len(data) < 100:
-            return [data]
+    def _bridge(self, client_sock, remote_sock):
+        client_sock.setblocking(0)
+        remote_sock.setblocking(0)
+        sockets = [client_sock, remote_sock]
         
-        # Создаем фейковую TLS запись
-        fake_header = b'\x16\x03\x03\x00\x01\x00'
-        
-        parts = []
-        # Сначала отправляем фейк
-        parts.append(fake_header)
-        # Потом оригинал по частям
-        offset = 0
-        while offset < len(data):
-            chunk = random.randint(20, 80)
-            parts.append(data[offset:offset + chunk])
-            offset += chunk
-        
-        return parts
-
-    # ==================== МЕТОД 5: ЗАДЕРЖКА МЕЖДУ ЧАСТЯМИ ====================
-    def fragment_delayed(self, data):
-        """Режет на части и добавляет задержку между отправкой"""
-        if len(data) < 200:
-            return [data]
-        
-        parts = []
-        offset = 0
-        while offset < len(data):
-            chunk = random.randint(1, 50)
-            parts.append(data[offset:offset + chunk])
-            offset += chunk
-        
-        self.last_delayed_parts = parts
-        return parts
-
-    # ==================== МЕТОД 6: AUTO (ВЫБИРАЕТ ЛУЧШИЙ) ====================
-    def fragment_auto(self, data, host=None):
-        """Автоматически выбирает метод в зависимости от сайта"""
-        # Для YouTube лучше работает hybrid
-        if host and ('youtube' in host or 'googlevideo' in host):
-            return self.fragment_hybrid(data)
-        # Для игр лучше работает tls_fragment
-        if host and ('brawlstars' in host or 'roblox' in host or 'minecraft' in host):
-            return self.fragment_tls_fragment(data)
-        # Для соцсетей лучше работает random
-        if host and ('instagram' in host or 'facebook' in host or 'tiktok' in host):
-            return self.fragment_random(data)
-        # По умолчанию hybrid
-        return self.fragment_hybrid(data)
-
-    # ==================== ОСНОВНАЯ ЛОГИКА ====================
-    def fragment_data(self, data, host=None):
-        """Выбор метода фрагментации"""
-        if self.method == 'random':
-            return self.fragment_random(data)
-        elif self.method == 'sni':
-            return self.fragment_sni(data)
-        elif self.method == 'hybrid':
-            return self.fragment_hybrid(data)
-        elif self.method == 'tls_fragment':
-            return self.fragment_tls_fragment(data)
-        elif self.method == 'delayed':
-            return self.fragment_delayed(data)
-        else:  # auto
-            return self.fragment_auto(data, host)
-
-    def start(self):
-        self.running = True
-        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server.bind((self.host, self.port))
-        self.server.listen(100)
-        threading.Thread(target=self._listen, daemon=True).start()
-        print(f"✅ Прокси запущен на {self.host}:{self.port}")
-        print(f"✅ Метод: {self.method.upper()}")
-
-    def _listen(self):
         while self.running:
             try:
-                client, _ = self.server.accept()
-                threading.Thread(target=self._handle, args=(client,), daemon=True).start()
+                readable, _, _ = select.select(sockets, [], [], 1.0)
+                if not readable: continue
+                
+                for s in readable:
+                    other = remote_sock if s is client_sock else client_sock
+                    data = s.recv(8192)
+                    if not data:
+                        return
+                    other.send(data)
+                    
+                    if s is remote_sock:
+                        self.stats['speed_down'] += len(data)
+                    else:
+                        self.stats['speed_up'] += len(data)
             except:
                 break
 
-    def _handle(self, client):
+    def _handle_client(self, client_sock):
         try:
-            data = client.recv(8192)
-            if not data:
-                return
+            initial_data = client_sock.recv(4096)
+            if not initial_data: return
             
-            header = data.decode('utf-8', 'ignore').split('\r\n')[0]
-            if "CONNECT" in header:
-                host_port = header.split(' ')[1]
-                target_host = host_port.split(':')[0]
-                target_port = int(host_port.split(':')[1])
-                
-                remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                remote.connect((target_host, target_port))
-                client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-                
-                is_blacklisted = any(domain in target_host for domain in self.blacklist)
-                if is_blacklisted:
-                    self.unblock_count += 1
-                    print(f"🔓 Разблокирован: {target_host}")
-                    fragment = True
-                else:
-                    fragment = False
-                
-                self._bridge(client, remote, fragment, target_host)
-        except Exception as e:
-            pass
-        finally:
-            client.close()
+            lines = initial_data.split(b'\r\n')
+            first_line = lines[0].decode(errors='ignore')
+            
+            if "CONNECT" in first_line:
+                target = first_line.split(' ')[1]
+                host = target.split(':')[0]
+                port = int(target.split(':')[1]) if ":" in target else 443
+                client_sock.send(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                data_to_bypass = client_sock.recv(4096)
+            else:
+                host = first_line.split(' ')[1].split('/')[2]
+                port = 80
+                data_to_bypass = initial_data
 
-    def _bridge(self, client, remote, fragment, host):
-        sockets = [client, remote]
-        delayed_parts = None
+            method = self.current_method
+            if method == 'auto':
+                method = self.history.get(host, 'double_fragment')
+
+            remote_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            remote_sock.settimeout(5)
+            remote_sock.connect((host, port))
+            
+            self._apply_bypass(remote_sock, data_to_bypass, method)
+            self.history[host] = method
+            
+            self._bridge(client_sock, remote_sock)
+        except Exception as e:
+            self.logger.error(f"Handler error: {e}")
+        finally:
+            client_sock.close()
+
+    def start(self):
+        self.running = True
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((self.host, self.port))
+        server.listen(128)
+        self.logger.info(f"Proxy started on {self.host}:{self.port}")
         
         while self.running:
-            r, _, _ = select.select(sockets, [], [], 1)
-            if not r:
-                continue
-            
-            for s in r:
-                other = remote if s is client else client
-                data = s.recv(8192)
-                if not data:
-                    return
-                
-                if fragment and s is client and data[0] == 0x16:
-                    parts = self.fragment_data(data, host)
-                    
-                    # Для метода delayed отправляем с задержкой
-                    if self.method == 'delayed':
-                        for part in parts:
-                            other.sendall(part)
-                            time.sleep(0.02)  # 20ms задержка
-                    else:
-                        for part in parts:
-                            other.sendall(part)
-                else:
-                    other.sendall(data)
+            try:
+                client, _ = server.accept()
+                threading.Thread(target=self._handle_client, args=(client,), daemon=True).start()
+            except:
+                break
 
     def stop(self):
         self.running = False
-        if hasattr(self, 'server'):
-            self.server.close()
-        print("🛑 Прокси остановлен")
+        self.logger.info("Proxy stopped")
