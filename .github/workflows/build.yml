@@ -1,4 +1,4 @@
-name: Build APK
+name: Build MyVPN APK
 
 on:
   push:
@@ -8,52 +8,36 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
-        pip3 install --user buildozer cython setuptools
-    
-    - name: Setup Android SDK
-      run: |
-        mkdir -p ~/.android
-        echo "count=0" > ~/.android/repositories.cfg
-        echo "y" | ~/.local/bin/buildozer android update 2>&1 || true
-    
-    - name: Build APK with full log
-      run: |
-        export PATH=$PATH:~/.local/bin
-        buildozer android debug 2>&1 | tee full_build.log
-        echo "=== BUILD LOG END ==="
-    
-    - name: Check build result
-      run: |
-        if [ -f bin/*.apk ]; then
-          echo "✅ APK built successfully!"
-          ls -la bin/
-        else
-          echo "❌ APK not found"
-          echo ""
-          echo "=== Last 200 lines of build log ==="
-          tail -200 full_build.log
-          exit 1
-        fi
-    
-    - name: Upload APK
-      if: success()
-      uses: actions/upload-artifact@v4
-      with:
-        name: MyVPN
-        path: bin/*.apk
-    
-    - name: Upload build log
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-log
-        path: full_build.log
+      - uses: actions/checkout@v4
+
+      - name: Cache buildozer
+        uses: actions/cache@v4
+        with:
+          path: .buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git zip unzip autoconf libtool pkg-config zlib1g-dev \
+          libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev python3-dev \
+          openjdk-17-jdk
+
+      - name: Install Python packages
+        run: |
+          pip3 install --user --upgrade pip
+          pip3 install --user --upgrade buildozer
+          pip3 install --user --upgrade Cython==0.29.33
+
+      - name: Build APK
+        run: |
+          export PATH=$PATH:$HOME/.local/bin
+          buildozer android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyVPN
+          path: bin/*.apk
