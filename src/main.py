@@ -1,3 +1,18 @@
+"""
+MyVPN - финальная версия с исправлениями
+- Правильные пути импорта
+- JsonStore в user_data_dir
+- Потоковый запуск прокси
+- Уведомления в статус-баре
+"""
+import sys
+import os
+import random
+import threading
+
+# КРИТИЧЕСКИ ВАЖНО: добавляем путь к папке с кодом
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from kivy.app import App
 from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.button import Button
@@ -7,38 +22,31 @@ from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.utils import get_color_from_hex
 from kivy.core.window import Window
-import sys
-import os
-import random
+from kivy.storage.jsonstore import JsonStore
 
-# Android уведомления
+# Импорт прокси с обработкой ошибки
+try:
+    from proxy_server import DPIProxy
+    PROXY_AVAILABLE = True
+    print("✅ proxy_server импортирован")
+except ImportError as e:
+    print(f"⚠️ proxy_server не найден: {e}")
+    PROXY_AVAILABLE = False
+    # Создаем заглушку, чтобы приложение не падало
+    class DPIProxy:
+        def __init__(self, *args, **kwargs): pass
+        def start(self): print("Stub start")
+        def stop(self): print("Stub stop")
+
+# Уведомления для Android
 try:
     from android import AndroidService
     from jnius import autoclass
-    AndroidString = autoclass('java.lang.String')
-    Context = autoclass('android.content.Context')
-    NotificationManager = autoclass('android.app.NotificationManager')
-    NotificationChannel = autoclass('android.app.NotificationChannel')
-    Notification = autoclass('android.app.Notification')
-    PendingIntent = autoclass('android.app.PendingIntent')
-    Intent = autoclass('android.content.Intent')
-    Build = autoclass('android.os.Build')
-    
-    HAS_NOTIFICATIONS = True
+    HAS_NOTIF = True
     print("✅ Уведомления поддерживаются")
 except:
-    HAS_NOTIFICATIONS = False
-    print("⚠️ Уведомления не поддерживаются")
-
-# Импортируем прокси
-sys.path.append(os.path.dirname(__file__))
-try:
-    from proxy_server import DPIProxy
-except ImportError:
-    class DPIProxy:
-        def __init__(self, *args, **kwargs): pass
-        def start(self): pass
-        def stop(self): pass
+    HAS_NOTIF = False
+    print("⚠️ Уведомления недоступны")
 
 class MyVPNApp(App):
     def build(self):
@@ -46,11 +54,20 @@ class MyVPNApp(App):
         self.active = False
         self.methods = ['hybrid', 'random', 'sni']
         self.current_method_idx = 0
-        self.service = None
         
+        # ========== КЛЮЧИ И СТОРАДЖ ==========
+        # Правильный путь для хранения ключей на Android
+        store_path = os.path.join(self.user_data_dir, 'myvpn_keys.dat')
+        self.store = JsonStore(store_path)
+        
+        # Проверяем сохраненный ключ
+        if self.store.exists('license'):
+            print(f"🔑 Найден ключ: {self.store.get('license')['key']}")
+        
+        # ========== ИНТЕРФЕЙС ==========
         root = RelativeLayout()
         
-        # Фон
+        # Фон (градиент)
         with root.canvas.before:
             for i in range(100):
                 Color(0.04, 0.02, 0.1 + (i/1000), 1)
@@ -142,52 +159,37 @@ class MyVPNApp(App):
             self.stats.text = f"Ping: {p}ms  |  Unblocked: {self.proxy.unblock_count}"
 
     def show_notification(self, title, text):
-        """Показывает уведомление в статус-баре"""
-        if not HAS_NOTIFICATIONS:
+        if not HAS_NOTIF:
             return
-        
         try:
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            Context = autoclass('android.content.Context')
+            Notification = autoclass('android.app.Notification')
+            PendingIntent = autoclass('android.app.PendingIntent')
+            Intent = autoclass('android.content.Intent')
+            
             activity = PythonActivity.mActivity
-            
-            # Создаем канал для уведомлений (для Android 8+)
-            if Build.VERSION.SDK_INT >= 26:
-                channel_id = AndroidString('myvpn_channel')
-                channel_name = AndroidString('MyVPN Service')
-                importance = NotificationManager.IMPORTANCE_LOW
-                channel = NotificationChannel(channel_id, channel_name, importance)
-                
-                nm = activity.getSystemService(Context.NOTIFICATION_SERVICE)
-                nm.createNotificationChannel(channel)
-            else:
-                channel_id = AndroidString('')
-            
-            # Создаем интент для открытия приложения
             intent = Intent(activity, PythonActivity)
             pending = PendingIntent.getActivity(activity, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)
             
-            # Создаем уведомление
-            notification_builder = Notification.Builder(activity, channel_id)
-            notification_builder.setContentTitle(AndroidString(title))
-            notification_builder.setContentText(AndroidString(text))
-            notification_builder.setSmallIcon(17301651)  # android.R.drawable.ic_menu_info_details
-            notification_builder.setContentIntent(pending)
-            notification_builder.setOngoing(True)  # Нельзя смахнуть
-            
-            notification = notification_builder.build()
+            builder = autoclass('android.app.Notification$Builder')(activity)
+            builder.setContentTitle(title)
+            builder.setContentText(text)
+            builder.setSmallIcon(17301651)
+            builder.setContentIntent(pending)
+            builder.setOngoing(True)
             
             nm = activity.getSystemService(Context.NOTIFICATION_SERVICE)
-            nm.notify(1, notification)
-            
+            nm.notify(1, builder.build())
         except Exception as e:
-            print(f"Ошибка уведомления: {e}")
+            print(f"Notif error: {e}")
 
     def hide_notification(self):
-        """Убирает уведомление"""
-        if not HAS_NOTIFICATIONS:
+        if not HAS_NOTIF:
             return
         try:
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            Context = autoclass('android.content.Context')
             activity = PythonActivity.mActivity
             nm = activity.getSystemService(Context.NOTIFICATION_SERVICE)
             nm.cancel(1)
@@ -196,15 +198,14 @@ class MyVPNApp(App):
 
     def toggle_vpn(self, instance):
         if not self.active:
-            self.proxy.start()
+            # ЗАПУСКАЕМ В ОТДЕЛЬНОМ ПОТОКЕ — КРИТИЧЕСКИ ВАЖНО!
+            threading.Thread(target=self.proxy.start, daemon=True).start()
             self.active = True
             self.btn_color.rgba = (0.2, 0.8, 0.4, 1)
             instance.text = "АКТИВЕН"
             
-            # Показываем уведомление
             self.show_notification("MyVPN", "VPN активен • Защита включена")
             
-            # Анимация пульсации
             anim = Animation(size=('240dp', '240dp'), duration=0.5) + Animation(size=('220dp', '220dp'), duration=0.5)
             anim.repeat = True
             anim.start(self.main_btn)
@@ -213,10 +214,7 @@ class MyVPNApp(App):
             self.active = False
             self.btn_color.rgba = (0.4, 0.2, 0.7, 1)
             instance.text = "ВКЛЮЧИТЬ"
-            
-            # Убираем уведомление
             self.hide_notification()
-            
             Animation.stop_all(self.main_btn)
             self.main_btn.size = ('220dp', '220dp')
 
