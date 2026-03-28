@@ -7,7 +7,24 @@ from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.utils import get_color_from_hex
 from kivy.core.window import Window
-from proxy_server import DPIProxy
+import sys
+import os
+
+# Добавляем текущую папку в путь
+sys.path.append(os.path.dirname(__file__))
+
+try:
+    from proxy_server import DPIProxy
+    print("✅ proxy_server импортирован")
+except ImportError as e:
+    print(f"❌ Ошибка импорта proxy_server: {e}")
+    # Создаем заглушку, чтобы приложение не падало
+    class DPIProxy:
+        def __init__(self, *args, **kwargs): pass
+        def start(self): print("Заглушка start")
+        def stop(self): print("Заглушка stop")
+        def fragment_data(self, data): return [data]
+
 import random
 
 class MyVPNApp(App):
@@ -86,11 +103,12 @@ class MyVPNApp(App):
     def change_method(self, instance):
         self.current_method_idx = (self.current_method_idx + 1) % len(self.methods)
         new_method = self.methods[self.current_method_idx]
-        self.proxy.method = new_method
+        if hasattr(self.proxy, 'method'):
+            self.proxy.method = new_method
         instance.text = f"МЕТОД: {new_method.upper()}"
 
     def update_stats(self, dt):
-        if self.active:
+        if self.active and hasattr(self.proxy, 'unblock_count'):
             p = random.randint(20, 45)
             self.stats.text = f"Ping: {p}ms  |  Unblocked: {self.proxy.unblock_count}"
 
