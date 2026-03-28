@@ -8,7 +8,7 @@ source.dir = src
 source.include_exts = py,png,jpg,kv,atlas,dat,txt
 
 version = 0.1
-requirements = python3,kivy==2.3.0,android,pyjnius,openssl,requests
+requirements = python3,kivy==2.3.0,android,pyjnius,openssl
 
 orientation = portrait
 fullscreen = 0
