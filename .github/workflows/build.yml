@@ -17,21 +17,47 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
-        pip3 install --user buildozer cython
+        pip3 install --user buildozer cython setuptools
     
-    - name: Accept Android SDK license
+    - name: Setup Android SDK
       run: |
         mkdir -p ~/.android
         echo "count=0" > ~/.android/repositories.cfg
-        yes | ~/.local/bin/buildozer android update || true
+        echo "y" | ~/.local/bin/buildozer android update || true
+        echo "y" | ~/.local/bin/buildozer android update --accept-sdk-license || true
+    
+    - name: Fix permissions
+      run: |
+        chmod +x ~/.local/bin/buildozer
+        mkdir -p ~/.buildozer
+    
+    - name: Clean previous builds
+      run: |
+        rm -rf ~/.buildozer
+        rm -rf bin
+        rm -rf .buildozer
     
     - name: Build APK
       run: |
         export PATH=$PATH:~/.local/bin
-        buildozer android debug
+        export LC_ALL=C.UTF-8
+        export LANG=C.UTF-8
+        buildozer android debug 2>&1 | tee build.log
+    
+    - name: Check if APK exists
+      run: |
+        if [ -f bin/*.apk ]; then
+          echo "APK built successfully"
+          ls -la bin/
+        else
+          echo "APK not found, showing last 100 lines of build log"
+          tail -100 build.log
+          exit 1
+        fi
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: MyVPN
         path: bin/*.apk
+        if-no-files-found: error
