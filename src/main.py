@@ -1,83 +1,92 @@
 """
-MyVPN - красивый VPN клиент с анимацией
-Совместимость: Kivy 2.3.0, KivyMD 1.1.1
+MyVPN - чистый Kivy, без KivyMD
+Гарантированно работает на Android
 """
-from kivy.lang import Builder
+from kivy.app import App
+from kivy.uix.button import Button
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.label import Label
 from kivy.animation import Animation
 from kivy.utils import get_color_from_hex
-from kivymd.app import MDApp
 from kivy.core.window import Window
 
-KV = '''
-MDScreen:
-    md_bg_color: [0.1, 0.02, 0.2, 1]
-
-    MDBoxLayout:
-        orientation: "vertical"
-        spacing: "30dp"
-        padding: "40dp"
-        pos_hint: {"center_x": 0.5, "center_y": 0.5}
-        size_hint: (0.9, 0.8)
-
-        MDLabel:
-            text: "MyVPN"
-            halign: "center"
-            font_style: "H3"
-            color: [0.75, 0.55, 1, 1]
-            bold: True
-            size_hint_y: 0.3
-
-        MDRaisedButton:
-            id: vpn_button
-            text: "ВКЛЮЧИТЬ VPN"
-            md_bg_color: [0.55, 0.25, 0.85, 1]
-            size_hint: (0.8, 0.2)
-            pos_hint: {"center_x": 0.5}
-            font_size: "20sp"
-            bold: True
-            on_release: app.toggle_vpn()
-
-        MDLabel:
-            id: status_label
-            text: "⛔ Не активен"
-            halign: "center"
-            font_size: "16sp"
-            color: [0.9, 0.4, 0.4, 1]
-            size_hint_y: 0.2
-
-        MDLabel:
-            text: "127.0.0.1:8881"
-            halign: "center"
-            font_size: "12sp"
-            color: [0.6, 0.5, 0.7, 1]
-            size_hint_y: 0.1
-'''
-
-class MyVPN(MDApp):
+class MyVPNApp(App):
     def build(self):
-        Window.clearcolor = get_color_from_hex('#0f001a')
-        self.screen = Builder.load_string(KV)
-        return self.screen
+        # Темно-фиолетовый фон
+        Window.clearcolor = get_color_from_hex('#120024')
+        
+        # Главный layout
+        layout = BoxLayout(
+            orientation='vertical', 
+            padding=[50, 80, 50, 80], 
+            spacing=40
+        )
+        
+        # Заголовок
+        title = Label(
+            text="MyVPN",
+            font_size='48sp',
+            color=get_color_from_hex('#BF8CFF'),
+            bold=True,
+            size_hint_y=0.3
+        )
+        layout.add_widget(title)
+        
+        # Кнопка
+        self.btn = Button(
+            text="ВКЛЮЧИТЬ VPN",
+            size_hint=(0.7, 0.2),
+            pos_hint={'center_x': 0.5},
+            background_normal='',
+            background_color=get_color_from_hex('#8C40D9'),
+            font_size='22sp',
+            bold=True
+        )
+        self.btn.bind(on_release=self.animate_button)
+        layout.add_widget(self.btn)
+        
+        # Статус
+        self.status = Label(
+            text="⛔ Не активен",
+            font_size='16sp',
+            color=get_color_from_hex('#FF6666'),
+            size_hint_y=0.2
+        )
+        layout.add_widget(self.status)
+        
+        # Адрес прокси
+        proxy_label = Label(
+            text="127.0.0.1:8881",
+            font_size='12sp',
+            color=get_color_from_hex('#AA99CC'),
+            size_hint_y=0.1
+        )
+        layout.add_widget(proxy_label)
+        
+        return layout
     
-    def toggle_vpn(self):
-        button = self.screen.ids.vpn_button
-        status = self.screen.ids.status_label
+    def animate_button(self, instance):
+        # Анимация пульсации
+        anim = Animation(
+            size_hint=(0.75, 0.22), 
+            background_color=get_color_from_hex('#B86EFF'), 
+            duration=0.08
+        )
+        anim += Animation(
+            size_hint=(0.7, 0.2), 
+            background_color=get_color_from_hex('#8C40D9'), 
+            duration=0.12
+        )
+        anim.start(instance)
         
-        # Анимация кнопки
-        anim1 = Animation(size_hint=(0.85, 0.22), duration=0.08, t='out_quad')
-        anim2 = Animation(size_hint=(0.8, 0.2), duration=0.12, t='in_quad')
-        (anim1 + anim2).start(button)
-        
-        # Меняем состояние
-        if "Не активен" in status.text:
-            status.text = "✅ АКТИВЕН"
-            status.color = [0.4, 0.9, 0.4, 1]
-            button.md_bg_color = [0.7, 0.4, 1, 1]
+        # Меняем статус
+        if "Не активен" in self.status.text:
+            self.status.text = "✅ АКТИВЕН"
+            self.status.color = get_color_from_hex('#66FF66')
             self.start_vpn()
         else:
-            status.text = "⛔ Не активен"
-            status.color = [0.9, 0.4, 0.4, 1]
-            button.md_bg_color = [0.55, 0.25, 0.85, 1]
+            self.status.text = "⛔ Не активен"
+            self.status.color = get_color_from_hex('#FF6666')
             self.stop_vpn()
     
     def start_vpn(self):
@@ -89,4 +98,4 @@ class MyVPN(MDApp):
         # TODO: добавить остановку прокси
 
 if __name__ == '__main__':
-    MyVPN().run()
+    MyVPNApp().run()
