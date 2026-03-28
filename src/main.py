@@ -9,20 +9,18 @@ from kivy.utils import get_color_from_hex
 from kivy.core.window import Window
 import sys
 import os
+import webbrowser
 
 # Добавляем текущую папку в путь
 sys.path.append(os.path.dirname(__file__))
 
 try:
     from proxy_server import DPIProxy
-    print("✅ proxy_server импортирован")
-except ImportError as e:
-    print(f"❌ Ошибка импорта proxy_server: {e}")
-    # Создаем заглушку, чтобы приложение не падало
+except ImportError:
     class DPIProxy:
         def __init__(self, *args, **kwargs): pass
-        def start(self): print("Заглушка start")
-        def stop(self): print("Заглушка stop")
+        def start(self): pass
+        def stop(self): pass
         def fragment_data(self, data): return [data]
 
 import random
@@ -36,18 +34,18 @@ class MyVPNApp(App):
         
         root = RelativeLayout()
         
-        # 1. Фон - Глубокий фиолетовый градиент
+        # Фон
         with root.canvas.before:
             for i in range(100):
                 Color(0.04, 0.02, 0.1 + (i/1000), 1)
                 Rectangle(pos=(0, i * (Window.height/100)), size=(Window.width, Window.height/100))
         
-        # 2. Звезды
+        # Звезды
         self.stars = InstructionGroup()
         root.canvas.after.add(self.stars)
         Clock.schedule_interval(self.update_stars, 1/20)
 
-        # 3. Неоновый заголовок
+        # Заголовок
         self.title = Label(
             text="[b]MyVPN[/b]", markup=True, font_size='56sp',
             pos_hint={'center_x': .5, 'center_y': .85},
@@ -55,7 +53,7 @@ class MyVPNApp(App):
         )
         root.add_widget(self.title)
 
-        # 4. Выбор метода (Стеклянная кнопка)
+        # Выбор метода
         self.method_btn = Button(
             text=f"МЕТОД: {self.methods[0].upper()}",
             size_hint=(0.7, 0.08), pos_hint={'center_x': .5, 'center_y': .7},
@@ -65,7 +63,7 @@ class MyVPNApp(App):
         self.method_btn.bind(on_release=self.change_method)
         root.add_widget(self.method_btn)
 
-        # 5. Главная кнопка (Круглая)
+        # Главная кнопка
         self.main_btn = Button(
             text="ВКЛЮЧИТЬ", size_hint=(None, None), size=('220dp', '220dp'),
             pos_hint={'center_x': .5, 'center_y': .4},
@@ -79,13 +77,29 @@ class MyVPNApp(App):
         self.main_btn.bind(pos=self.sync_btn, size=self.sync_btn, on_release=self.toggle_vpn)
         root.add_widget(self.main_btn)
 
-        # 6. Статистика
+        # Статистика
         self.stats = Label(
             text="Ping: 0ms  |  Unblocked: 0",
             pos_hint={'center_x': .5, 'center_y': .15},
             color=(0.7, 0.7, 0.9, 1)
         )
         root.add_widget(self.stats)
+
+        # ========== НОВАЯ КНОПКА ПОДДЕРЖКИ ==========
+        self.support_btn = Button(
+            text="💬 ПОДДЕРЖКА",
+            size_hint=(0.4, 0.07), 
+            pos_hint={'center_x': 0.85, 'center_y': 0.05},
+            background_normal='', 
+            background_color=(0.3, 0.2, 0.5, 0.6),
+            color=(0.9, 0.8, 1, 1),
+            bold=True,
+            font_size='12sp'
+        )
+        self.support_btn.bind(on_release=self.open_support)
+        root.add_widget(self.support_btn)
+        # ============================================
+
         Clock.schedule_interval(self.update_stats, 1)
 
         return root
@@ -128,6 +142,25 @@ class MyVPNApp(App):
             instance.text = "ВКЛЮЧИТЬ"
             Animation.stop_all(self.main_btn)
             self.main_btn.size = ('220dp', '220dp')
+
+    # ========== ОТКРЫТИЕ TELEGRAM ==========
+    def open_support(self, instance):
+        # Анимация кнопки
+        anim = Animation(size_hint=(0.45, 0.08), duration=0.1) + Animation(size_hint=(0.4, 0.07), duration=0.1)
+        anim.start(instance)
+        
+        # Открываем Telegram профиль
+        tg_url = "https://t.me/gZ9zRbTt"
+        try:
+            webbrowser.open(tg_url)
+        except:
+            # Если не открывается, пробуем другой способ
+            import subprocess
+            try:
+                subprocess.run(['am', 'start', '-a', 'android.intent.action.VIEW', '-d', tg_url])
+            except:
+                pass
+    # ======================================
 
 if __name__ == '__main__':
     MyVPNApp().run()
